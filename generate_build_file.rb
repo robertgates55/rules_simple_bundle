@@ -37,6 +37,7 @@ GEM_TEMPLATE = <<~GEM_TEMPLATE
     srcs = [],
     outs = ["{gem_name}.gem"],
     cmd = """
+      gem sources -c
       TARGET_PLATFORM="x86_64-linux"
       gem fetch --platform $$TARGET_PLATFORM --no-prerelease --source {source} --version {version} {name} >/dev/null
       mv {name}-{version}*.gem $@ >/dev/null
@@ -67,10 +68,9 @@ GEM_TEMPLATE = <<~GEM_TEMPLATE
       ENV_PLATFORM=$$(gem environment platform)
       TARGET_PLATFORM_MATCH=$$(echo $$ENV_PLATFORM | grep $$TARGET_PLATFORM >/dev/null; echo $$?)
       GEM_PLATFORM_MATCH=$$(echo $$ENV_PLATFORM | grep $$GEM_PLATFORM >/dev/null; echo $$?)
-      
-      GEM_NO_EXTENSIONS=$$(gem specification {name}-{version}.gem extensions | sed '1d;$$d' | wc -l) # 0 = no extensions
+      GEM_NUM_EXTENSIONS=$$(gem specification {name}-{version}.gem extensions | sed '1d;$$d' | wc -l) # 0 = no extensions
 
-      if [ "$${TARGET_PLATFORM_MATCH}" -eq "0" ] || ( [ "$${GEM_NO_EXTENSIONS}" -eq "0" ] && [ "$${GEM_PLATFORM_MATCH}" -eq "0" ] )
+      if [ "$${TARGET_PLATFORM_MATCH}" -eq "0" ] || ( [ "$${GEM_NUM_EXTENSIONS}" -eq "0" ] && [ "$${GEM_PLATFORM_MATCH}" -eq "0" ] )
       then
         gem install --platform $$TARGET_PLATFORM --no-document --no-wrappers --ignore-dependencies --local --version {version} {name} >/dev/null 2>&1
         # Symlink all the bin files

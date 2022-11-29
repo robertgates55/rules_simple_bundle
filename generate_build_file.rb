@@ -75,7 +75,7 @@ GEM_TEMPLATE = <<~GEM_TEMPLATE
         gem install --platform $$TARGET_PLATFORM --no-document --no-wrappers --ignore-dependencies --local --version {version} {name} >/dev/null 2>&1
         # Symlink all the bin files
         cd $$GEM_HOME
-        find ./bin -type l -exec sh -c 'if [[ $$(readlink $$0) == /* ]]; then (export TARGET_ABS=$$(readlink $$0) REPLACE="$${PWD}/"; rm $$0; ln -s ../"$${TARGET_ABS/"$${REPLACE}"/}" $$0); fi' {} +
+        find ./bin -type l -exec sh -c 'if [[ $$(readlink $$0) == /* ]]; then (export TARGET_ABS=$$(readlink $$0) REPLACE="$${PWD}/"; rm $$0; ln -s ../"$${TARGET_ABS/"$${REPLACE}"/}" $$0); fi' {} + || true
         # Clean up files we don't need in the bundle
         rm -rf $$GEM_HOME/wrappers $$GEM_HOME/environment $$GEM_HOME/cache/{name}-{version}*.gem
       else

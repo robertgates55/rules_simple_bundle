@@ -68,7 +68,7 @@ GEM_TEMPLATE = <<~GEM_TEMPLATE
       TARGET_PLATFORM_MATCH=$$(echo $$ENV_PLATFORM | grep $$TARGET_PLATFORM >/dev/null; echo $$?)
       GEM_PLATFORM_MATCH=$$(echo $$ENV_PLATFORM | grep $$GEM_PLATFORM >/dev/null; echo $$?)
       
-      GEM_NO_EXTENSIONS=$$(gem specification {name}-{version}.gem --ruby | grep -v 's.extensions =' >/dev/null; echo $$?) # 0 = no extensions
+      GEM_NO_EXTENSIONS=$$(gem specification {name}-{version}.gem extensions | sed '1d;$$d' | wc -l) # 0 = no extensions
 
       if [ "$${TARGET_PLATFORM_MATCH}" -eq "0" ] || ( [ "$${GEM_NO_EXTENSIONS}" -eq "0" ] && [ "$${GEM_PLATFORM_MATCH}" -eq "0" ] )
       then

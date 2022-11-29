@@ -1,0 +1,1 @@
+workspace(name = "rules_simple_bundle")

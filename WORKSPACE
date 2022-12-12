@@ -1,1 +1,1 @@
-workspace(name = "rules_simple_bundle")
+workspace(name = "rules_simple_maven")

@@ -3,10 +3,10 @@
 
 BASIC_BUILD_FILE = <<~BASIC_BUILD_FILE
   package(default_visibility = ["//visibility:public"])
-  load("@rules_simple_maven//tools:mvn_package.bzl", "mvn_package")
+  load("@rules_simple_maven//tools:mvn.bzl", "mvn")
 
-  mvn_package(
-      name = "mvn-package",
+  mvn(
+      name = "{name}",
       pom = "pom.xml",
       srcs = glob([
           "src/main/**/*",
@@ -32,7 +32,6 @@ require 'stringio'
 require 'pathname';
 
 DUCO_PREFIXES=['duco.cube', 'co.du']
-MVN_EXE='mvn'
 
 def safe_command(command)
   output = `#{command}`
@@ -44,14 +43,20 @@ end
 
 def get_all_packages(root)
   all_poms = Dir.glob("#{root}/**/pom.xml")
-  all_poms.map { |pom| {
-    :artifact_id  => get_artifact_from_pom(pom),
-    :group_id     => get_group_from_pom(pom),
-    :parent       => get_parent_from_pom(pom),
-    :location     => safe_relative_path(root, pom),
-    :pom          => pom,
-    :dependencies => get_duco_deps(get_deps_from_pom(pom)).map{ |dep| { :artifact_id => dep[:artifactId], :group_id => dep[:groupId]}}
-  }}
+  all_poms
+    .map { |pom| parse_pom_into_package(pom) }
+    .each { |package| package[:location] = safe_relative_path(root, package[:pom]) }
+end
+
+def parse_pom_into_package(pom)
+  pom_hash = XmlHasher.parse(File.new(pom))
+  package = {}
+  package[:pom] = pom
+  package[:artifact_id] = get_artifact_from_pom_hash(pom_hash)
+  package[:group_id] = get_group_from_pom_hash(pom_hash)
+  package[:parent] = get_parent_from_pom_hash(pom_hash)
+  package[:dependencies] = get_duco_deps(get_deps_from_pom_hash(pom_hash))
+  package
 end
 
 def get_artifact_location(packages, group_lookup, artifact_lookup)
@@ -63,18 +68,7 @@ def get_artifact_location(packages, group_lookup, artifact_lookup)
   output.empty? ? 'src' : "src/#{output}"
 end
 
-def get_artifact_pom(packages, group_lookup, artifact_lookup)
-  output = packages
-             .select{ |artifact| artifact[:group_id] == group_lookup}
-             .select{ |artifact| artifact[:artifact_id] == artifact_lookup}
-             .map{ |artifact| artifact[:pom] }
-             .first
-  output
-end
-
-
-def get_group_from_pom(pom)
-  pom_hash = XmlHasher.parse(File.new(pom))
+def get_group_from_pom_hash(pom_hash)
   if !pom_hash[:project][:groupId].nil?
     group = pom_hash[:project][:groupId]
   elsif !pom_hash[:project][:parent][:groupId].nil?
@@ -85,32 +79,11 @@ def get_group_from_pom(pom)
   group
 end
 
-def get_all_parent_poms(packages, package)
-  parent_poms = []
-  parent = package[:parent]
-  while parent
-    parent_poms << get_artifact_pom(packages, parent[:group_id], parent[:artifact_id]) unless parent.nil?
-    parent = packages
-      .select{ |artifact| artifact[:group_id] == parent[:group_id]}
-      .select{ |artifact| artifact[:artifact_id] == parent[:artifact_id]}
-      .map{ |artifact| artifact[:parent] }
-      .first
-  end
-  parent_poms
-end
-
-def get_artifact_from_pom(pom)
-  pom_hash = XmlHasher.parse(File.new(pom))
+def get_artifact_from_pom_hash(pom_hash)
   pom_hash[:project][:artifactId]
 end
 
-def get_deps_from_pom(pom)
-  pom_hash = XmlHasher.parse(File.new(pom))
-  get_deps_from_pom_hash(pom_hash)
-end
-
-def get_parent_from_pom(pom)
-  pom_hash = XmlHasher.parse(File.new(pom))
+def get_parent_from_pom_hash(pom_hash)
   parent = {}
   if !pom_hash[:project][:parent].nil?
     parent = pom_hash[:project][:parent] unless pom_hash[:project][:parent].nil?
@@ -127,19 +100,16 @@ def get_deps_from_pom_hash(pom_hash)
   else
     deps = [ pom_hash[:project][:dependencies][:dependency] ]
   end
-  deps
+  deps.map{ |dep| { :artifact_id => dep[:artifactId], :group_id => dep[:groupId]}}
 end
 
 def get_duco_deps(deps)
-  deps.select{ |dep| dep[:groupId].start_with?(*DUCO_PREFIXES) }
+  deps.select{ |dep| dep[:group_id].start_with?(*DUCO_PREFIXES) }
 end
 
-def bazel_target_name(package)
-  group_name = package[:group_id].gsub(/[.]/,'-')
-  artifact_name = package[:artifact_id].gsub(/[.]/,'-')
-  target_name = group_name
-  target_name =+ "_#{artifact_name}" unless artifact_name.nil?
-  target_name
+def safe_package_name(package)
+  package_name = File.join('src', package[:location])
+  package_name.chomp('/').gsub('/','_')
 end
 
 def safe_relative_path(root, pom)
@@ -148,34 +118,39 @@ end
 
 # ruby ./parse_pom.rb "pom.xml"
 if $0 == __FILE__
-  root, * = *ARGV
+  root_pom, * = *ARGV
 
   # when we append to a string many times, using StringIO is more efficient.
   template_out = StringIO.new
   template_out.puts BUILD_HEADER
 
-  all_packages = get_all_packages File.dirname(root)
+  # Recurse from the root pom - discover all poms & all packages
+  all_packages = get_all_packages(File.dirname(root_pom))
+  root_package = all_packages.select{|p| p[:location].empty? }.first
 
   all_packages.each do |package|
-    deps = package[:dependencies]
-             .map{|dep| "@cube//#{get_artifact_location(all_packages, dep[:group_id], dep[:artifact_id])}:mvn-package"}
 
-    parent_poms = get_all_parent_poms(all_packages, package).uniq.reject { |c| c.nil? }
-    deps.concat(parent_poms.map{ |pom| "@cube//src#{safe_relative_path(root, pom)}:mvn-package" })
-    deps.append '//:generate_maven_build_file.rb'
+    # Get all deps
+    deps = package[:dependencies] + [package[:parent]]
 
-    package_name = package[:location].empty? ? 'src' : File.join('src', package[:location]).gsub('/','_')
+    # Map to bazel targets
+    dep_targets = deps
+                    .reject { |c| c.empty? }
+                    .map{|dep| get_artifact_location(all_packages, dep[:group_id], dep[:artifact_id])}
+                    .map{|dep_location| "@cube//#{dep_location}:mvn"}
+                    .uniq
+    dep_targets = [":generate_maven_build_file.rb"] if dep_targets.empty?
 
+    # Write the package deps
     template_out.puts PACKAGE_TEMPLATE
-                        .gsub('{name}', package_name)
-                        .gsub('{dependencies}', deps.uniq.to_s)
+                    .gsub('{name}', safe_package_name(package))
+                    .gsub('{dependencies}', dep_targets.to_s)
 
     location = File.dirname(package[:pom])
     build_file = File.join(location,'BUILD')
     ::File.open(build_file, 'w') {
       |f| f.puts BASIC_BUILD_FILE
-                   .gsub('{name}', bazel_target_name(package))
-                   .gsub('{dep_locations}', package[:dependencies].size > 0 ? "$(locations @src_maven_tree//:#{bazel_target_name(package)}_deps)" : "")
+                   .gsub('{name}', location.split('/').last)
     } unless File.exist? build_file
   end
 
